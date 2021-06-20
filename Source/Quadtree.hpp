@@ -8,6 +8,8 @@
 
 class Quadtree final
 {
+	friend class Quad;
+
 public:
 	class Node
 	{
@@ -49,7 +51,7 @@ public:
 			return points.size();
 		}
 
-		std::vector<sf::Vector2f> GetData()
+		std::vector<sf::Vector2f> GetData() const
 		{
 			return points;
 		}
@@ -61,10 +63,11 @@ public:
 	class Quad final : public Node
 	{
 	public:
-		Quad(const sf::Vector2f &position, const sf::Vector2f &size, const std::uint32_t maxObjectsPerRegion)
+		Quad(const sf::Vector2f &position, const sf::Vector2f &size, const Quadtree &quadtree, const std::uint32_t depth = 0)
 			: position(position)
 			, size(size)
-			, maxObjectsPerRegion(maxObjectsPerRegion)
+			, quadtree(quadtree)
+			, depth(depth)
 		{
 			nodes.fill(nullptr);
 		}
@@ -72,30 +75,8 @@ public:
 	public:
 		void Insert(const sf::Vector2f &point) override
 		{
-			std::uint32_t nodeIndex;
 			sf::Vector2f quadPos;
-			const sf::Vector2f center = position + size / 2.0f;
-
-			if (point.x <= center.x && point.y <= center.y) // top-left
-			{
-				nodeIndex = 0;
-				quadPos = position;
-			}
-			else if (point.x > center.x && point.y <= center.y) // top-right
-			{
-				nodeIndex = 1;
-				quadPos = sf::Vector2f(center.x, position.y);
-			}
-			else if (point.x <= center.x && point.y > center.y) // bottom-left
-			{
-				nodeIndex = 2;
-				quadPos = sf::Vector2f(position.x, center.y);
-			}
-			else if (point.x > center.x && point.y > center.y) // bottom-right
-			{
-				nodeIndex = 3;
-				quadPos = center;
-			}
+			const std::uint32_t nodeIndex = this->GetNodeIndex(point, &quadPos);
 
 			Node* &node = nodes[nodeIndex];
 
@@ -106,9 +87,9 @@ public:
 
 			if (Region *region = dynamic_cast<Region*>(node))
 			{
-				if (region->GetSize() >= maxObjectsPerRegion - 1)
+				if (region->GetSize() >= quadtree.maxObjectsPerRegion && depth + 1 < quadtree.maxDepth)
 				{
-					node = new Quad(quadPos, size / 2.0f, maxObjectsPerRegion);
+					node = new Quad(quadPos, size / 2.0f, quadtree, depth + 1);
 					for (const sf::Vector2f &point : region->GetData())
 					{
 						node->Insert(point);
@@ -131,6 +112,24 @@ public:
 					delete node;
 					node = nullptr;
 				}
+			}
+		}
+
+		std::vector<sf::Vector2f> GetNeighbors(const sf::Vector2f &point) const
+		{
+			const std::uint32_t nodeIndex = this->GetNodeIndex(point);
+
+			if (Region *region = dynamic_cast<Region*>(nodes[nodeIndex]))
+			{
+				return region->GetData();
+			}
+			else if (Quad *quad = dynamic_cast<Quad*>(nodes[nodeIndex]))
+			{
+				return quad->GetNeighbors(point);
+			}
+			else
+			{
+				return std::vector<sf::Vector2f>();
 			}
 		}
 
@@ -169,28 +168,91 @@ public:
 		}
 
 	private:
+		std::size_t GetNodeIndex(const sf::Vector2f &point, sf::Vector2f *nodePos = nullptr) const
+		{
+			std::uint32_t nodeIndex;
+			const sf::Vector2f center = position + size / 2.0f;
+
+			if (point.x <= center.x && point.y <= center.y) // top-left
+			{
+				nodeIndex = 0;
+				
+				if (nodePos)
+				{
+					*nodePos = position;
+				}
+			}
+			else if (point.x > center.x && point.y <= center.y) // top-right
+			{
+				nodeIndex = 1;
+
+				if (nodePos)
+				{
+					*nodePos = sf::Vector2f(center.x, position.y);
+				}
+			}
+			else if (point.x <= center.x && point.y > center.y) // bottom-left
+			{
+				nodeIndex = 2;
+
+				if (nodePos)
+				{
+					*nodePos = sf::Vector2f(position.x, center.y);
+				}
+			}
+			else if (point.x > center.x && point.y > center.y) // bottom-right
+			{
+				nodeIndex = 3;
+
+				if (nodePos)
+				{
+					*nodePos = center;
+				}
+			}
+
+			return nodeIndex;
+		}
+
+	private:
 		std::array<Node*, 4> nodes;
 		const sf::Vector2f position, size;
-		const std::uint32_t maxObjectsPerRegion;
+		const Quadtree &quadtree;
+		std::uint32_t depth = 0;
 	};
 
 public:
-	Quadtree(const sf::Vector2f &size, const std::uint32_t maxObjectsPerRegion = 4)
+	Quadtree(const sf::Vector2f &size, const std::uint32_t maxObjectsPerRegion = 4, const std::uint32_t maxDepth = 64)
 		: size(size)
 		, maxObjectsPerRegion(maxObjectsPerRegion)
-		, root(new Quad(sf::Vector2f(), size, maxObjectsPerRegion))
+		, maxDepth(maxDepth)
+		, root(new Quad(sf::Vector2f(), size, *this))
 	{
 	}
 
 public:
 	void Insert(const sf::Vector2f &point)
 	{
-		root->Insert(point);
+		if (sf::FloatRect(sf::Vector2f(), size).contains(point))
+		{
+			root->Insert(point);
+		}
 	}
 
 	void Clear()
 	{
 		root->Destroy();
+	}
+
+	std::vector<sf::Vector2f> GetNeighbors(const sf::Vector2f &point) const
+	{
+		if (sf::FloatRect(sf::Vector2f(), size).contains(point))
+		{
+			return root->GetNeighbors(point);
+		}
+		else
+		{
+			return std::vector<sf::Vector2f>();
+		}
 	}
 
 	void Render(sf::RenderWindow &window)
@@ -200,6 +262,6 @@ public:
 
 private:
 	const sf::Vector2f size;
-	const std::uint32_t maxObjectsPerRegion;
+	const std::uint32_t maxObjectsPerRegion, maxDepth;
 	Quad *root;
 };

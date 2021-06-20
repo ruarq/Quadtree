@@ -1,5 +1,7 @@
 #include <algorithm>
 #include <ctime>
+#include <vector>
+#include <string>
 
 #include <SFML/Graphics.hpp>
 
@@ -14,19 +16,20 @@ int main()
 {
 	std::srand(std::time(nullptr));
 
-	std::vector<Spaceship> spaceships(100);
+	std::vector<Spaceship> spaceships(500'000);
 	std::generate(spaceships.begin(), spaceships.end(), []()
 	{
 		Spaceship spaceship;
-		spaceship.position = sf::Vector2f(std::rand() % 1280, std::rand() % 720);
-		spaceship.velocity = sf::Vector2f(std::rand() % 201 - 100, std::rand() % 201 - 100);
+		spaceship.position = sf::Vector2f(640 + std::rand() % 11 - 5, 360 + std::rand() % 11 - 5);
+		spaceship.velocity = sf::Vector2f(std::rand() % 101 - 50, std::rand() % 101 - 50);
 		return spaceship;
 	});
 
+	const std::string windowTitle("Quadtree - Using C++ & SFML2.5.1");
 	sf::RenderWindow window(sf::VideoMode(1280u, 720u), "Quadtree - Using C++ & SFML2.5.1");
 	sf::Clock clock;
 
-	Quadtree quadtree(sf::Vector2f(1280.0f, 720.0f));
+	Quadtree quadtree(sf::Vector2f(1280.0f, 720.0f), 1024);
 
 	while (window.isOpen())
 	{
@@ -76,10 +79,22 @@ int main()
 			quadtree.Insert(spaceship.position);
 		}
 
+		std::vector<sf::Vector2f> neighbors = quadtree.GetNeighbors(static_cast<sf::Vector2f>(sf::Mouse::getPosition(window)));
+
 		// Render
 		window.clear();
 
+		// render the quadtree
 		quadtree.Render(window);
+
+		// render the neighbors
+		sf::CircleShape shape(2.0f);
+		shape.setFillColor(sf::Color::Red);
+		for (const sf::Vector2f &neighbor : neighbors)
+		{
+			shape.setPosition(neighbor);
+			window.draw(shape);
+		}
 
 		window.display();
 	}
